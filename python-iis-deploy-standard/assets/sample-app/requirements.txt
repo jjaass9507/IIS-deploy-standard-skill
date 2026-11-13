@@ -1,0 +1,5 @@
+# Direct dependencies. requirements.lock pins everything (generated with pip-compile).
+flask==3.1.3
+waitress==3.0.2
+python-dotenv==1.2.4
+ldap3==2.9.1

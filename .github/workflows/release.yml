@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The bundled sample project must keep passing the skill's own self-check.
+      - name: Self-check the sample project
+        run: python python-iis-deploy-standard/scripts/self_check.py python-iis-deploy-standard/assets/sample-app
+
+      - name: Sample project tests
+        working-directory: python-iis-deploy-standard/assets/sample-app
+        run: |
+          python -m pip install --quiet -r requirements.txt pytest
+          python -m pytest -q
+
+      - name: Validate SKILL.md front matter
+        run: |
+          python - <<'PY'
+          import re, sys
+          text = open("python-iis-deploy-standard/SKILL.md", encoding="utf-8").read()
+          m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+          if not m: sys.exit("SKILL.md has no YAML front matter")
+          fields = dict(line.split(":", 1) for line in m.group(1).splitlines() if ":" in line)
+          for key in ("name", "description"):
+              if not fields.get(key, "").strip(): sys.exit(f"SKILL.md front matter is missing {key}")
+          if fields["name"].strip() != "python-iis-deploy-standard": sys.exit("name must match the folder name")
+          print("front matter ok")
+          PY
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          (cd . && zip -qr dist/python-iis-deploy-standard.skill python-iis-deploy-standard -x '*/__pycache__/*')
+          cp dist/python-iis-deploy-standard.skill dist/python-iis-deploy-standard.zip
+          (cd dist && sha256sum python-iis-deploy-standard.skill > python-iis-deploy-standard.skill.sha256)
+
+      - name: Publish release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v1.2.${{ github.run_number }}"
+          gh release create "$tag" dist/python-iis-deploy-standard.skill dist/python-iis-deploy-standard.zip dist/python-iis-deploy-standard.skill.sha256 \
+            --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "python-iis-deploy-standard（規範 v1.2）build ${{ github.run_number }}" \
+            --notes "部署規範 skill。下載 .skill（或內容相同的 .zip），安裝方式見 README。"

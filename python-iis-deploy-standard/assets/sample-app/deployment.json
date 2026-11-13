@@ -1,0 +1,29 @@
+{
+  "standard": "1.2",
+  "application": "sample-app",
+  "displayName": "範例系統",
+  "version": "1.0.0",
+  "python": "3.12",
+  "type": "web+services",
+  "web": { "framework": "wsgi", "entry": "app:create_app", "factory": true, "health": "/health", "version": "/version", "probePage": "/" },
+  "auth": {
+    "ad": true, "sso": true, "employeeLookup": false,
+    "meEndpoint": "/api/auth/me", "loginEndpoint": "/api/auth/login", "logoutEndpoint": "/api/auth/logout", "ssoEndpoint": "/auth/sso",
+    "rbac": "平台以 PLATFORM_USERS 設定（正式系統應為資料表）記錄已開通帳號與角色；AD 驗證成功但未開通者一律回 403。"
+  },
+  "services": [
+    {
+      "id": "sample-app-worker", "kind": "venv", "args": ["-m", "sample_app.worker"], "scheduled": true,
+      "restart": "on-failure", "stopTimeoutSeconds": 30,
+      "lastSuccess": "file:${APP_DATA_DIR}/worker-status.json",
+      "dedup": "單一 Worker 程序，每輪以狀態檔記錄已處理的時間點",
+      "catchUp": "啟動時比對狀態檔的最後成功時間，超過一個週期就立即補跑"
+    }
+  ],
+  "include": ["app.py", "sample_app"],
+  "configTemplate": ".env.example",
+  "selfTest": { "env": { "APP_ENV": "development", "AUTH_MODE": "mock", "SECRET_KEY": "dev-only-secret-key-for-self-test-0123456789" } },
+  "migrations": { "args": [], "compatibility": "none", "notes": "沒有資料庫" },
+  "reviewed": [],
+  "exceptions": []
+}
