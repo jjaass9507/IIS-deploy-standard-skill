@@ -27,17 +27,25 @@ jobs:
           python -m pip install --quiet -r requirements.txt pytest
           python -m pytest -q
 
+      - name: Internal agent integration skill tests
+        working-directory: internal-agent-integration
+        run: |
+          python -m pip install --quiet requests pillow pytest
+          python -m pytest -q assets/tests
+          python -m py_compile scripts/selftest.py scripts/label_banner.py
+
       - name: Validate SKILL.md front matter
         run: |
           python - <<'PY'
           import re, sys
-          text = open("python-iis-deploy-standard/SKILL.md", encoding="utf-8").read()
-          m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
-          if not m: sys.exit("SKILL.md has no YAML front matter")
-          fields = dict(line.split(":", 1) for line in m.group(1).splitlines() if ":" in line)
-          for key in ("name", "description"):
-              if not fields.get(key, "").strip(): sys.exit(f"SKILL.md front matter is missing {key}")
-          if fields["name"].strip() != "python-iis-deploy-standard": sys.exit("name must match the folder name")
+          for skill in ("python-iis-deploy-standard", "internal-agent-integration"):
+              text = open(f"{skill}/SKILL.md", encoding="utf-8").read()
+              m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+              if not m: sys.exit(f"{skill}/SKILL.md has no YAML front matter")
+              fields = dict(line.split(":", 1) for line in m.group(1).splitlines() if ":" in line)
+              for key in ("name", "description"):
+                  if not fields.get(key, "").strip(): sys.exit(f"{skill}/SKILL.md front matter is missing {key}")
+              if fields["name"].strip() != skill: sys.exit(f"{skill}: name must match the folder name")
           print("front matter ok")
           PY
 
@@ -47,6 +55,9 @@ jobs:
           (cd . && zip -qr dist/python-iis-deploy-standard.skill python-iis-deploy-standard -x '*/__pycache__/*')
           cp dist/python-iis-deploy-standard.skill dist/python-iis-deploy-standard.zip
           (cd dist && sha256sum python-iis-deploy-standard.skill > python-iis-deploy-standard.skill.sha256)
+          zip -qr dist/internal-agent-integration.skill internal-agent-integration -x '*/__pycache__/*' '*/.pytest_cache/*'
+          cp dist/internal-agent-integration.skill dist/internal-agent-integration.zip
+          (cd dist && sha256sum internal-agent-integration.skill > internal-agent-integration.skill.sha256)
 
       - name: Publish release
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -55,6 +66,7 @@ jobs:
         run: |
           tag="v1.2.${{ github.run_number }}"
           gh release create "$tag" dist/python-iis-deploy-standard.skill dist/python-iis-deploy-standard.zip dist/python-iis-deploy-standard.skill.sha256 \
+            dist/internal-agent-integration.skill dist/internal-agent-integration.zip dist/internal-agent-integration.skill.sha256 \
             --repo "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "python-iis-deploy-standard（規範 v1.2）build ${{ github.run_number }}" \
-            --notes "部署規範 skill。下載 .skill（或內容相同的 .zip），安裝方式見 README。"
+            --notes "部署規範 skill（python-iis-deploy-standard）與內部 Agent 串接 skill（internal-agent-integration）。下載 .skill（或內容相同的 .zip），安裝方式見 README。"

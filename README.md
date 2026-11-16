@@ -113,6 +113,53 @@ python python-iis-deploy-standard/scripts/self_check.py <專案資料夾>
 
 ---
 
+# internal-agent-integration（內部 Agent 串接 skill）
+
+這個 repo 另外附一個獨立的 skill：**串接公司內部 Agent 平台的完整作法**，整理自「工程進度簡報 AI 解析平台」實際上線的程式。
+
+內部 Agent 平台長得像 OpenAI API（`/v1/chat/completions`、`/v1/files`），但行為不相容：`temperature`、`response_format`、`tools` 靜默忽略，沒有對話記憶，HTTP 200 可能是空回應、429 可能是參數錯、500 可能只是路由不存在，附件只認一種寫法，輸出上限約 1,825 tokens，而且會自信地捏造。這個 skill 讓 Agent 在新專案裡照已驗證的方式串接，不必再踩一次這些坑：
+
+- 防禦式 client（`scripts/agent_client.py`，只依賴 `requests`）：上傳與索引等待、唯一有效的附件形狀、把不可信的狀態碼翻成明確例外、可重試／不可重試分開、TLS（內部 CA）
+- 結構化輸出：prompt 約束＋容錯 JSON 抽取（`scripts/jsonx.py`）＋一次嚴格重試＋降級
+- 單則自足 prompt、錨點引用、分批與本地合併
+- 圖片判讀：正規化、標籤畫進像素並查核（`scripts/label_banner.py`）
+- 來源比對（grounding）、自我更正一輪、篩掉來源不存在的結論
+- 呼叫層／工作層兩層重試、呼叫紀錄、DEMO 模式
+- 測試用假平台（`assets/tests/`）與上線前 `scripts/selftest.py`
+
+```text
+internal-agent-integration/
+├─ SKILL.md                      主要說明（Agent 先讀這份）
+├─ references/
+│  ├─ platform-quirks.md         每個平台怪異行為的現象、判斷與處理
+│  ├─ patterns.md                prompt、JSON 呼叫包裝、分批、來源比對、自我更正、工作層的程式碼骨架
+│  └─ config.md                  .env.example 片段、設定讀取、與部署規範一起用時的注意事項
+├─ scripts/
+│  ├─ agent_client.py            防禦式 client（直接複製進專案）
+│  ├─ jsonx.py                   容錯 JSON 抽取
+│  ├─ label_banner.py            圖片正規化與標籤橫幅（Pillow）
+│  └─ selftest.py                對真實平台的上線前檢查
+└─ assets/tests/
+   ├─ fake_platform.py           重現平台行為的假 Session
+   └─ test_agent_client.py       範例測試（不需要 API key）
+```
+
+安裝方式與上面相同：下載 Release 裡的 `internal-agent-integration.skill`（或 `.zip`），或把 `internal-agent-integration` 資料夾放到 `.claude/skills/`。兩個 skill 可以一起用——串接 Agent 的系統要部署到 IIS 時，設定與寫入路徑照部署規範 skill，Agent 呼叫照這一份。
+
+使用範例：
+
+> 這個 Flask 專案要串接內部 Agent，把上傳的 Excel 摘要成 JSON。請依 internal-agent-integration skill 實作。
+
+> Agent 呼叫一直回 200 但內容是空的／回 429／回 500 No static resource，請依 internal-agent-integration skill 檢查。
+
+部署到新環境後，先在伺服器上跑：
+
+```bash
+python internal-agent-integration/scripts/selftest.py 測試圖片.jpg
+```
+
+---
+
 ## 更新
 
 規範或部署助手的規則改變時，同步更新這裡與 [IIS-deploy-assistant](https://github.com/jjaass9507/IIS-deploy-assistant) 裡的同一份 skill（`skills/python-iis-deploy-standard`）。推送到 `main` 後會自動：
