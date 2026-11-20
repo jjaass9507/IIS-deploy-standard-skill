@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Python 部署標準 v1.2 自我檢查（靜態）。
+"""Python 部署標準 v1.2 與 PostgreSQL 資料庫權限標準 v1.0 自我檢查（靜態）。
 
 用法：python self_check.py <專案資料夾> [--json]
 
@@ -89,6 +89,7 @@ class Checker:
         self.auth(m, sources)
         self.services(m)
         self.migrations(m)
+        self.database(m)
         self.apply_overrides(m)
         return self.findings
 
@@ -365,6 +366,138 @@ class Checker:
         elif not migration.get("notes"):
             self.add(DECLARE, "MIG-01", "migrations.notes 沒有填寫", "說明本版的資料庫變更，以及舊版程式為何仍可運作（或還原計畫）", "deployment.json")
 
+    # ------------------------------------------------------------ PostgreSQL（docs/09、PostgreSQL 標準 v1.0）
+    DB_DRIVERS = ("psycopg", "psycopg2", "psycopg2-binary", "psycopg-binary", "asyncpg", "pg8000")
+    IDENT = re.compile(r"[a-z_][a-z0-9_]{0,62}")
+    DBA_ONLY = re.compile(r"\b(CREATE|ALTER|DROP)\s+(ROLE|USER|GROUP)\b|\bREASSIGN\s+OWNED\b|\bDROP\s+OWNED\b|\b(CREATE|ALTER|DROP)\s+DATABASE\b"
+                          r"|\bALTER\s+SYSTEM\b|\bREVOKE\b.*\bON\s+DATABASE\b|\bGRANT\b.*\bON\s+DATABASE\b|\bOWNER\s+TO\b|\bCREATE\s+SCHEMA\b"
+                          r"|\bDROP\s+SCHEMA\b|\bCREATE\s+EXTENSION\b|\bpg_terminate_backend\b", re.I)
+    GRANT = re.compile(r"\bGRANT\s+(?P<privs>.+?)\s+ON\s+(?P<obj>.+?)\s+TO\s+(?P<to>[^;\"')]+)", re.I)
+    MEMBERSHIP = re.compile(r"\bGRANT\s+\"?[A-Za-z_][\w$]*\"?\s+TO\s+", re.I)
+    BROAD = re.compile(r"\b(ALL|TRUNCATE|CREATE|TRIGGER|REFERENCES|MAINTAIN)\b", re.I)
+    DDL = re.compile(r"\b(CREATE(\s+OR\s+REPLACE)?|ALTER|DROP)\s+(TABLE|VIEW|MATERIALIZED\s+VIEW|SEQUENCE|FUNCTION|PROCEDURE|TYPE|TRIGGER|INDEX(\s+CONCURRENTLY)?)\s+"
+                     r"(IF\s+(NOT\s+)?EXISTS\s+)?\"?(?P<s>[A-Za-z_]\w*)\"?\.\"?(?P<t>[A-Za-z_]\w*)", re.I)
+    DML = re.compile(r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(\s+TABLE)?)\s+\"?(?P<s>[A-Za-z_]\w*)\"?\.\"?(?P<t>[A-Za-z_]\w*)", re.I)
+    SYSTEM_SCHEMAS = {"pg_catalog", "information_schema", "pg_temp"}
+
+    def template_values(self, m):
+        text = self.read(m.get("configTemplate") or ".env.example") or ""
+        values = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                values[key.strip()] = value.strip().strip('"').strip("'")
+        return values
+
+    def database_sources(self):
+        """會下 SQL 的檔案：Python（含 migration 版本檔）與 .sql，不含測試；略過註解行。"""
+        result = []
+        for path in self.packaged_files():
+            rel = path.relative_to(self.root).as_posix()
+            parts = rel.split("/")
+            if path.suffix not in (".py", ".sql") or "tests" in parts or "__pycache__" in parts or path.name.startswith("test_"):
+                continue
+            try:
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            result.append((rel, ["" if l.lstrip().startswith(("#", "--")) else l for l in lines]))
+        return result
+
+    def database(self, m):
+        db = m.get("database")
+        lock = (self.read("requirements.lock") or "").lower()
+        values = self.template_values(m)
+        # 部門正式環境一律使用 PostgreSQL；SQLite 只用於開發與檢查，所以用到 SQLite 也要宣告 database
+        urls = [values.get("DATABASE_URL", ""), str(((m.get("selfTest") or {}).get("env") or {}).get("DATABASE_URL") or "")]
+        uses_db = any(re.search(rf"^{re.escape(d)}==", lock, re.M) for d in self.DB_DRIVERS + ("aiosqlite",)) \
+            or any(u.lower().startswith(("postgres", "sqlite")) for u in urls) \
+            or self.grep(self.python_sources(), r"^\s*(import|from)\s+(sqlite3|aiosqlite)\b|sqlite(\+\w+)?://", re.I)
+        if db is None:
+            if uses_db:
+                self.add(DECLARE, "DB-01", "專案使用資料庫（PostgreSQL 或開發用的 SQLite），但 deployment.json 沒有 database 區段",
+                         '加上 "database": {"name": "CIM", "schema": "<系統 schema>", "prefix": "<角色前綴>"}（見 references/deployment-json.md）', "deployment.json")
+            return
+        prefix = db.get("prefix") or ""
+        roles_cfg = db.get("roles") or {}
+
+        def role(key, suffix):
+            return roles_cfg.get(key) or (prefix + suffix if prefix else "")
+        roles = {"owner": role("owner", "_owner"), "rw": role("rw", "_rw"), "ro": role("ro", "_ro"),
+                 "migrator": role("migrator", "_migrator"), "service": role("service", "_svc")}
+        schema = db.get("schema") or ""
+        problems = []
+        if db.get("engine", "postgresql") != "postgresql":
+            problems.append(f'engine 為 "{db.get("engine")}"（目前只支援 postgresql）')
+        if not db.get("name"):
+            problems.append("沒有 name（資料庫名稱）")
+        if not self.IDENT.fullmatch(schema):
+            problems.append(f'schema 為 "{schema}"（小寫英數與底線）')
+        elif schema in ("public", "base") or schema.startswith("pg_"):
+            problems.append(f"schema 不可為 {schema}")
+        if not all(roles.values()):
+            problems.append("沒有 prefix，也沒有在 roles 指定全部角色名稱")
+        else:
+            problems += [f'角色 {k} 為 "{v}"（小寫英數與底線）' for k, v in roles.items() if not self.IDENT.fullmatch(v)]
+            if len(set(roles.values())) < len(roles):
+                problems.append("owner、rw、ro、migrator、service 必須是不同的角色")
+        for table in (db.get("sharedReads") or []) + (db.get("sharedWrites") or []):
+            if not re.fullmatch(r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*", table or ""):
+                problems.append(f'共用資料表 "{table}" 需寫成 schema.table')
+        if db.get("sharedWrites") and not db.get("sharedWritesApproval"):
+            problems.append("有 sharedWrites 但沒有 sharedWritesApproval（DBA 的核准紀錄）")
+        if problems:
+            self.add(ERROR, "DB-01", "；".join(problems), "修正 deployment.json 的 database", "deployment.json")
+            return
+
+        match = re.match(r"^[a-z][a-z0-9+.-]*://([^:@/\s]+)(:[^@]*)?@", values.get("DATABASE_URL", ""), re.I)
+        if match and match.group(1).lower() in ("postgres", roles["owner"], roles["migrator"]):
+            self.add(ERROR, "DB-02", f"設定範本的 DATABASE_URL 使用 {match.group(1)} 連線",
+                     f"網站與服務改用 {roles['service']}；owner 不可登入，migration 帳號只在部署時輸入", m.get("configTemplate") or ".env.example")
+
+        sources = self.database_sources()
+        migration = m.get("migrations") or {}
+        if migration.get("args") and not self.grep(sources, r"\bSET\s+(SESSION\s+|LOCAL\s+)?ROLE\b", re.I):
+            self.add(ERROR, "DB-03", "有 Migration，但程式碼中找不到 SET ROLE",
+                     f"Migration 連線後、建表前執行 SET ROLE {roles['owner']}（見 references/code-patterns.md §10）")
+        hit = self.grep(sources, self.DBA_ONLY.pattern, re.I)
+        if hit:
+            self.add(ERROR, "DB-04", hit, "建立帳號、密碼、Schema、Owner 與資料庫層級的變更由 DBA 執行；從程式移除，改請使用者交給 DBA")
+        allowed = {roles["rw"].lower(), roles["ro"].lower()}
+        writable = {t.lower() for t in db.get("sharedWrites") or []}
+        grant_hit = other_hit = None
+        for rel, lines in sources:
+            for number, line in enumerate(lines, 1):
+                where = f"{rel} 第 {number} 行：{line.strip()[:140]}"
+                g = self.GRANT.search(line)
+                if not grant_hit:
+                    if g:
+                        to = g.group("to")
+                        targets = [t.strip().split(" ")[0].lower() for t in to.replace('"', "").split(",") if t.strip()]
+                        if self.BROAD.search(g.group("privs")) or (not re.search(r"[{%:]", to) and any(t not in allowed for t in targets)):
+                            grant_hit = where
+                    elif self.MEMBERSHIP.search(line):
+                        grant_hit = where
+                if not other_hit:
+                    d = self.DDL.search(line)
+                    w = self.DML.search(line)
+                    if d and d.group("s").lower() != schema and d.group("s").lower() not in self.SYSTEM_SCHEMAS:
+                        other_hit = where
+                    elif w and w.group("s").lower() != schema and w.group("s").lower() not in self.SYSTEM_SCHEMAS:
+                        table = f'{w.group("s")}.{w.group("t")}'.lower()
+                        if table not in writable and not table.endswith(".kh_ad_employees"):
+                            other_hit = where
+        if grant_hit:
+            self.add(ERROR, "DB-05", grant_hit, f"只授予 {roles['rw']}（SELECT/INSERT/UPDATE/DELETE）與 {roles['ro']}（SELECT）；不給 ALL、TRUNCATE、CREATE，不授予登入帳號或 PUBLIC")
+        if other_hit:
+            self.add(ERROR, "DB-06", other_hit, f"只修改本系統 Schema（{schema}）；共用資料要寫入時列在 sharedWrites 並附 DBA 核准")
+        serial = self.grep(sources, r"\b(BIG|SMALL)?SERIAL\b")
+        if serial:
+            self.add(WARNING, "DB-07", serial, "新表改用 GENERATED ALWAYS AS IDENTITY")
+
+    REVIEWABLE_ERRORS = {"DB-03", "DB-04", "DB-05", "DB-06"}   # 推測性規則：確認無誤後可用 reviewed 排除
+
     def apply_overrides(self, m):
         today = date.today().isoformat()
         exceptions = {e.get("rule"): e for e in m.get("exceptions") or []
@@ -375,7 +508,7 @@ class Checker:
             if finding["rule"] in exceptions and finding["rule"] in can_except and finding["level"] == ERROR:
                 finding["level"] = "已核准例外"
                 finding["fix"] = f'例外至 {exceptions[finding["rule"]]["until"]}'
-            elif finding["rule"] in reviewed and finding["level"] == WARNING:
+            elif finding["rule"] in reviewed and (finding["level"] == WARNING or (finding["level"] == ERROR and finding["rule"] in self.REVIEWABLE_ERRORS)):
                 finding["level"] = "已人工確認"
 
 
@@ -392,7 +525,7 @@ def main(argv):
     if "--json" in argv:
         print(json.dumps({"blocking": len(blocking), "findings": findings}, ensure_ascii=False, indent=2))
         return 1 if blocking else 0
-    print(f"===== 部署標準 v1.2 自我檢查（靜態）：{root.name} =====")
+    print(f"===== 部署標準 v1.2／資料庫標準 v1.0 自我檢查（靜態）：{root.name} =====")
     for level in (ERROR, DECLARE, WARNING, "已核准例外", "已人工確認"):
         items = [f for f in findings if f["level"] == level]
         if not items:

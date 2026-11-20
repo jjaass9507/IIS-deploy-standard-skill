@@ -1,6 +1,6 @@
 # python-iis-deploy-standard（部署規範 skill）
 
-給 AI Agent 用的 skill：讓 Python 專案從一開始就符合部門《Python 程式與平台部署標準 v1.2》，可以通過 [IIS 部署助手](https://github.com/jjaass9507/IIS-deploy-assistant) 的規範檢查並打包部署。
+給 AI Agent 用的 skill：讓 Python 專案從一開始就符合部門《Python 程式與平台部署標準 v1.2》與《PostgreSQL 資料庫權限與管理標準 v1.0》，可以通過 [IIS 部署助手](https://github.com/jjaass9507/IIS-deploy-assistant) 的規範檢查並打包部署。
 
 開新專案，或請 Agent 修改既有專案時提供給它，Agent 會照規範建立必要的架構：
 
@@ -10,6 +10,7 @@
 - AD 帳密登入與 Windows SSO（`/auth/sso`、權杖解析、`CloseHandle`）、Session 與 CSRF
 - 背景工作改成由 WinSW 管理的常駐服務
 - 資料庫 Migration 的相容性宣告
+- PostgreSQL 的 `database` 宣告（資料庫、Schema、owner／rw／ro／migrator／服務帳號）；Migration 先 `SET ROLE` 成 owner、程式不建立帳號或改授權（開發時用 SQLite 也要宣告，正式環境一律 PostgreSQL）
 
 完成後 Agent 會用附的檢查腳本自我檢查，再請你在 Windows 上用 IIS 部署助手做最終檢查。
 

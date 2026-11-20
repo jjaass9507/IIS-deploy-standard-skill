@@ -352,6 +352,41 @@ if __name__ == "__main__":
 url = os.environ.get("MIGRATION_DATABASE_URL") or os.environ["DATABASE_URL"]   # 部署時由工具提供 migration 帳號
 ```
 
+使用 PostgreSQL 時，建表前要在**同一條連線**切換成 owner（《PostgreSQL 資料庫權限與管理標準》§05、§06）。Alembic 寫在 `migrations/env.py`：
+
+```python
+# migrations/env.py（只列出要改的部分）
+import os
+from sqlalchemy import create_engine, text, pool
+
+def run_migrations_online():
+    url = os.environ.get("MIGRATION_DATABASE_URL") or os.environ["DATABASE_URL"]
+    owner = os.environ.get("DATABASE_OWNER_ROLE")            # 例如 powerbill_owner；開發機可不設
+    engine = create_engine(url, poolclass=pool.NullPool)
+    with engine.connect() as connection:
+        if owner:
+            # 角色名稱不能用參數綁定，先確認是單純的識別字再組 SQL
+            if not owner.replace("_", "").isalnum():
+                raise ValueError("DATABASE_OWNER_ROLE 只能包含英數與底線")
+            connection.execute(text(f'SET ROLE "{owner}"'))
+        context.configure(connection=connection, target_metadata=target_metadata,
+                          version_table_schema=os.environ.get("DATABASE_SCHEMA"))   # alembic_version 也放在系統 Schema
+        with context.begin_transaction():
+            context.run_migrations()
+```
+
+自寫的 Migration 腳本（psycopg）：
+
+```python
+with psycopg.connect(url, autocommit=False) as conn:
+    if owner:
+        conn.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(owner)))
+    apply_pending(conn)      # 建表一律寫 <schema>.<table>，主鍵用 GENERATED ALWAYS AS IDENTITY
+```
+
+- 不在 Migration 裡 `CREATE ROLE`、`GRANT ... TO <登入帳號>`、`ALTER ... OWNER TO`；新表的授權由 DBA 設定的預設權限自動套用。
+- `.env.example` 加上 `DATABASE_OWNER_ROLE`（與 `DATABASE_SCHEMA`，有用到時）；`DATABASE_URL` 的範例帳號寫服務帳號（`<prefix>_svc`）。
+
 - 可重複執行（已套用的不重做），成功結束碼 0、失敗非 0。
 - 支援 `--help`（argparse 預設就有），檢查工具會用它確認指令能啟動；否則在 `migrations.checkArgs` 指定。
 - `MIGRATION_DATABASE_URL` 不寫進 `.env`。

@@ -32,8 +32,36 @@
 | `migrations.compatibility` | 有 Migration | `"backward-compatible"`、`"restore-plan"` 或 `"none"` |
 | `migrations.notes` | 有 Migration | 這一版改了什麼、為何舊版仍可運作；`restore-plan` 時寫還原計畫 |
 | `migrations.checkArgs` | | 指令不支援 `--help` 時，指定一組只檢查不修改的參數 |
+| `database` | 用 PostgreSQL | 見下方「database」。用 PostgreSQL 但沒有宣告時，檢查結果為「需要宣告」 |
 | `reviewed[]` | | 檢查工具「靠掃描推測」的項目誤判時的人工確認：`{"rule", "file", "note", "by"}` |
 | `exceptions[]` | | 暫時做不到的項目：`{"rule", "reason", "risk", "owner", "plan", "until": "yyyy-MM-dd"}`，六項都要填，過期失效 |
+
+### database（使用資料庫時：正式環境一律 PostgreSQL，開發用 SQLite 也要宣告）
+
+依《PostgreSQL 資料庫權限與管理標準 v1.0》宣告系統的 Schema 與角色。部署助手用它檢查程式、產生 DBA 建置腳本，並在部署時實際連線檢查權限。
+
+```json
+"database": {
+  "name": "CIM",
+  "schema": "powerbill",
+  "prefix": "powerbill",
+  "sharedReads": ["base.kh_ad_employees"]
+}
+```
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `name` | ✓ | 資料庫名稱 |
+| `schema` | ✓ | 系統自己的 Schema（不可為 `public`、`base`） |
+| `prefix` | ✓（或 `roles`） | 角色名稱前綴：`<prefix>_owner`、`_rw`、`_ro`、`_migrator`、`_svc`、`_report` |
+| `roles` | | 既有系統角色名稱不同時逐一指定：`{"owner", "rw", "ro", "migrator", "service", "report"}`；五個角色不可相同 |
+| `dedicated` | | `true`＝新建專用資料庫；預設 `false`＝部門共用資料庫（不更動 PUBLIC 與其他系統的權限） |
+| `serviceAccess` | | 服務帳號屬於哪個群組：`"rw"`（預設）或 `"ro"` |
+| `report` | | `true` 時另建唯讀報表帳號 |
+| `sharedReads` | | 要讀取的共用資料表，寫成 `schema.table` |
+| `sharedWrites`、`sharedWritesApproval` | | 要寫入的共用資料表與 DBA 的核准紀錄（兩者一起填；不要替使用者編造） |
+| `rls` | | 有使用 Row Level Security 時 `true` |
+| `tls` | | 預設 `false`（部門不使用 SSL）；`true` 時部署會要求連線使用 TLS |
 
 ### services[]
 

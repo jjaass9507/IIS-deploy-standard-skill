@@ -1,6 +1,6 @@
 ---
 name: python-iis-deploy-standard
-description: 讓 Python 網站或背景服務符合部門《Python 程式與平台部署標準 v1.2》（Windows Server / IIS / HttpPlatformHandler / Waitress 或 Uvicorn / WinSW / AD 登入與 Windows SSO / 離線 Release 包），可通過「IIS 部署助手」的規範檢查並打包。只要是在建立新的公司內部 Python 系統（Flask、Django、FastAPI）、替既有專案補上部署所需的架構、新增 deployment.json / requirements.lock / /health / /version、處理 APP_CONFIG_FILE 或 shared 目錄的寫入路徑、AUTH_MODE / AD 帳密 / /auth/sso、把排程或 Worker 改成 WinSW 服務，或使用者提到「部署規範」「部署標準」「IIS 部署」「部署助手檢查沒過」「要能打包部署」時，都要使用這個 skill——即使使用者沒有明說規範的名稱。
+description: 讓 Python 網站或背景服務符合部門《Python 程式與平台部署標準 v1.2》與《PostgreSQL 資料庫權限與管理標準 v1.0》（Windows Server / IIS / HttpPlatformHandler / Waitress 或 Uvicorn / WinSW / AD 登入與 Windows SSO / 離線 Release 包），可通過「IIS 部署助手」的規範檢查並打包。只要是在建立新的公司內部 Python 系統（Flask、Django、FastAPI）、替既有專案補上部署所需的架構、新增 deployment.json / requirements.lock / /health / /version、處理 APP_CONFIG_FILE 或 shared 目錄的寫入路徑、AUTH_MODE / AD 帳密 / /auth/sso、把排程或 Worker 改成 WinSW 服務、設計 PostgreSQL 的 schema／角色／Migration 權限（owner、rw、ro、migrator、SET ROLE），或使用者提到「部署規範」「部署標準」「IIS 部署」「部署助手檢查沒過」「要能打包部署」時，都要使用這個 skill——即使使用者沒有明說規範的名稱。
 ---
 
 # Python 部署標準 v1.2：讓專案具備必要架構
@@ -43,6 +43,7 @@ D:\WebServices\<系統名稱>\
 | 有沒有使用者登入？ | 有 → 必須同時提供 AD 帳密登入與 Windows SSO |
 | 有沒有排程、長時間任務、或沒人使用也要跑的工作？ | 有 → 拆成 WinSW 背景服務，不放在網站程序 |
 | 有沒有資料庫 Migration？ | 有 → 每一版要宣告與舊版是否相容 |
+| 有沒有資料庫（含開發用的 SQLite）？ | 有 → 正式環境一律 PostgreSQL：宣告 `database`（資料庫、Schema、角色），照 §7 的角色模型寫 Migration |
 
 ### 2. 準備專案根目錄的檔案
 
@@ -123,6 +124,27 @@ D:\WebServices\<系統名稱>\
 - 在 `deployment.json` 的 `migrations.compatibility` 宣告 `backward-compatible`、`restore-plan`（不相容，並在 `notes` 寫還原計畫）或 `none`。
 - Migration 指令要能重複執行；連線帳號從設定的 `DATABASE_URL` 取得，若環境變數 `MIGRATION_DATABASE_URL` 存在就改用它（部署時由工具提供 migration 帳號）。
 
+#### PostgreSQL 的角色與權限（《PostgreSQL 資料庫權限與管理標準 v1.0》）
+
+每個系統有自己的 Schema 與五個角色，名稱由 `database.prefix` 推得（見 `references/deployment-json.md`）：
+
+| 角色 | 可登入 | 用途 |
+|---|---|---|
+| `<prefix>_owner` | 否 | 擁有 Schema 與所有表 |
+| `<prefix>_rw`／`<prefix>_ro` | 否 | 讀寫／唯讀群組；權限只授予群組 |
+| `<prefix>_migrator` | 是 | 部署時跑 Migration：先 `SET ROLE <prefix>_owner` 再建表 |
+| `<prefix>_svc` | 是 | 網站與背景服務；`.env` 的 `DATABASE_URL` 用它 |
+
+寫程式時要做到：
+
+- 網站與服務**不可**用 `postgres`、owner 或 migrator 連線。
+- Migration 連線後、建表前，在**同一條連線**執行 `SET ROLE <owner>`（角色名稱從設定 `DATABASE_OWNER_ROLE` 讀）。沒有這一步，新表的 owner 會是 migrator、預設權限不會套用，上線後服務帳號會遇到 `permission denied`。部署助手在切換版本前會實際檢查，不符合就停止部署。
+- 程式與 Migration 裡**不寫** `CREATE ROLE`、`ALTER ROLE`、密碼、`CREATE SCHEMA`、`... OWNER TO`、`REVOKE ... ON DATABASE`、`REASSIGN OWNED`、`DROP OWNED`——這些由 DBA 執行，部署助手會依宣告產生建置腳本給 DBA（`deploy-assistant db-scripts`）。
+- 若要 `GRANT`，只授予本系統的 `_rw`／`_ro` 群組，不給 `ALL`、`TRUNCATE`、`CREATE`，不給登入帳號或 `PUBLIC`。通常不需要：DBA 設好預設權限後，owner 建立的新表會自動授權。
+- 只建立或修改本系統 Schema 的物件。共用資料（例如 `base` Schema）只讀；要讀哪些表列在 `database.sharedReads`；確實要寫入時列在 `sharedWrites` 並由使用者填上 DBA 的核准紀錄（不要替使用者編造）。
+- 新表的流水號用 `GENERATED ALWAYS AS IDENTITY`，不用 `SERIAL`。
+- 程式碼一律寫完整名稱（`<schema>.<table>`）或依賴服務帳號的 `search_path`；不要改整個資料庫的 `search_path`。
+
 ### 8. 完成前自我檢查
 
 執行 skill 附的檢查腳本，它涵蓋部署助手的大部分靜態規則：
@@ -146,6 +168,7 @@ python <skill 路徑>/scripts/self_check.py <專案資料夾>
 
 - 不要寫 `web.config`、安裝腳本或 WinSW 設定——由部署助手產生，專案自帶的會被忽略。
 - 不要把 `.env`、`.venv`、資料庫檔、`logs`、`node_modules`、密鑰放進 `deployment.json` 的 `include` 範圍。
+- 不要讓網站或服務用 owner／postgres 帳號連線資料庫，也不要在程式裡建立帳號或改授權來「自己修好」權限問題——權限不足時列出需要 DBA 執行的 SQL，交給使用者。
 - 不要為了通過檢查而寫假的端點或假的宣告（例如宣告 Migration 相容但實際會刪欄位）。宣告是給部署的人判斷風險用的，寫錯會讓回滾出事。
 
 ## 參考檔案
