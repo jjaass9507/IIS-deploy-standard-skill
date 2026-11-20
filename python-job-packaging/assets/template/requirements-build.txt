@@ -1,0 +1,4 @@
+# Build machine only (deploy/build_nuitka.ps1); not needed on the target host.
+# Keep this file ASCII-only: pip reads it with the system code page (cp950 on zh-TW Windows).
+nuitka>=4.2,<5
+ordered-set>=4.1

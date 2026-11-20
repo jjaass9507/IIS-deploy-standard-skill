@@ -34,11 +34,22 @@ jobs:
           python -m pytest -q assets/tests
           python -m py_compile scripts/selftest.py scripts/label_banner.py
 
+      - name: Job packaging skill (scaffold every DB combination, test, check)
+        run: |
+          set -e
+          for db in sqlserver oracle sqlserver,oracle none; do
+            out="$RUNNER_TEMP/job_${db/,/_}"
+            python python-job-packaging/scripts/scaffold.py "$out" --app sample_job --db "$db" --description "sample job"
+            (cd "$out" && python -m unittest discover -s tests -t .)
+            python python-job-packaging/scripts/check_project.py "$out"
+            if grep -rIl "pms_ingest\|PmsIngest" "$out"; then echo "reference name leaked into template"; exit 1; fi
+          done
+
       - name: Validate SKILL.md front matter
         run: |
           python - <<'PY'
           import re, sys
-          for skill in ("python-iis-deploy-standard", "internal-agent-integration"):
+          for skill in ("python-iis-deploy-standard", "internal-agent-integration", "python-job-packaging"):
               text = open(f"{skill}/SKILL.md", encoding="utf-8").read()
               m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
               if not m: sys.exit(f"{skill}/SKILL.md has no YAML front matter")
@@ -58,6 +69,9 @@ jobs:
           zip -qr dist/internal-agent-integration.skill internal-agent-integration -x '*/__pycache__/*' '*/.pytest_cache/*'
           cp dist/internal-agent-integration.skill dist/internal-agent-integration.zip
           (cd dist && sha256sum internal-agent-integration.skill > internal-agent-integration.skill.sha256)
+          zip -qr dist/python-job-packaging.skill python-job-packaging -x '*/__pycache__/*'
+          cp dist/python-job-packaging.skill dist/python-job-packaging.zip
+          (cd dist && sha256sum python-job-packaging.skill > python-job-packaging.skill.sha256)
 
       - name: Publish release
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -67,6 +81,7 @@ jobs:
           tag="v1.2.${{ github.run_number }}"
           gh release create "$tag" dist/python-iis-deploy-standard.skill dist/python-iis-deploy-standard.zip dist/python-iis-deploy-standard.skill.sha256 \
             dist/internal-agent-integration.skill dist/internal-agent-integration.zip dist/internal-agent-integration.skill.sha256 \
+            dist/python-job-packaging.skill dist/python-job-packaging.zip dist/python-job-packaging.skill.sha256 \
             --repo "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "python-iis-deploy-standard（規範 v1.2）build ${{ github.run_number }}" \
-            --notes "部署規範 skill（python-iis-deploy-standard）與內部 Agent 串接 skill（internal-agent-integration）。下載 .skill（或內容相同的 .zip），安裝方式見 README。"
+            --notes "部署規範 skill（python-iis-deploy-standard）、內部 Agent 串接 skill（internal-agent-integration）與排程打包 skill（python-job-packaging）。下載 .skill（或內容相同的 .zip），安裝方式見 README。"

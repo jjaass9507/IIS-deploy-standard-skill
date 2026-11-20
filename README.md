@@ -161,10 +161,61 @@ python internal-agent-integration/scripts/selftest.py 測試圖片.jpg
 
 ---
 
+# python-job-packaging（排程打包 skill）
+
+這個 repo 另外附一個獨立的 skill：**把 Python 批次程式打包成 Windows 排程上線的標準作法**（簡稱「排程打包」，規範文件 FAC-JOB-STD-001），整理自實際上線的 pms_ingest（Kepware(Oracle) → PMS）。
+
+和部署規範 skill 的分界：
+
+| 程式型態 | 用哪個 skill |
+|---|---|
+| 放在 IIS 上的網站，以及網站附帶的常駐背景服務（WinSW） | python-iis-deploy-standard |
+| 定時跑一次就結束的批次程式，目標主機不裝 Python，用工作排程器觸發 | **python-job-packaging** |
+
+做法重點：
+
+- Nuitka `--mode=standalone` 編譯成 exe，`deploy/build_nuitka.ps1` 打包成含 SHA256 的離線 zip（Proxy、C 編譯器自動選擇、oracledb／pyodbc 隱藏相依都已處理）
+- 設定用 `<PREFIX>_` 環境變數 + `.env`（環境變數優先），`protect_env.ps1` 鎖權限
+- 程式必備 `selfcheck`／`selfcheck --db`／`dryrun`／`run`／`--version`；日誌在 `C:\ProgramData\<App>\logs\`，結束碼 0/1/2
+- 工作排程器以 `SYSTEM` 執行（`register_task.ps1 -RunAs "SYSTEM"`），`IgnoreNew`、執行上限小於間隔
+- 交付 `deploy/README.md`（含回滾步驟）與 `deploy/DEV_TEST.md`，依上線檢核表確認
+
+```text
+python-job-packaging/
+├─ SKILL.md                      主要說明（Agent 先讀這份）
+├─ references/
+│  └─ standard.md                完整規範（原則、結構、流程、建置、安全、排程、檢核表、FAQ、交付文件範本）
+├─ scripts/
+│  ├─ scaffold.py                由範本產生新專案骨架（只用標準函式庫）
+│  └─ check_project.py           靜態檢查專案是否符合規範（只用標準函式庫）
+└─ assets/template/              專案範本：程式、單元測試、部署腳本、交付文件
+```
+
+安裝方式與上面相同：下載 Release 裡的 `python-job-packaging.skill`（或 `.zip`），或把 `python-job-packaging` 資料夾放到 `.claude/skills/`。
+
+使用範例：
+
+> 排程打包：寫一支每 15 分鐘把 Oracle 的電表讀值同步到 SQL Server 的程式，套件名稱 meter_sync。
+
+> 這支 Python 腳本要排程打包上線到沒有 Python 的 Windows Server，先檢查差距，修改前先跟我確認。
+
+> 編譯版在目標主機跑 selfcheck 出現 No module named 'xxx'，請依排程打包 skill 處理。
+
+不透過 Agent 也可以直接使用（需要 Python 3.8 以上）：
+
+```bash
+python python-job-packaging/scripts/scaffold.py ./meter_sync --app meter_sync --db sqlserver,oracle --description "電表資料同步"
+python python-job-packaging/scripts/check_project.py ./meter_sync            # 交付前加 --strict
+```
+
+產生的專案搜尋 `TODO(專案)` 逐項完成即可。`check_project.py` 只做靜態檢查；`selfcheck --db`、dryrun、編譯版驗證仍要在 Windows 上執行。
+
+---
+
 ## 更新
 
 規範或部署助手的規則改變時，同步更新這裡與 [IIS-deploy-assistant](https://github.com/jjaass9507/IIS-deploy-assistant) 裡的同一份 skill（`skills/python-iis-deploy-standard`）。推送到 `main` 後會自動：
 
-1. 用 `self_check.py` 檢查範例專案，並執行範例專案的測試。
+1. 用 `self_check.py` 檢查範例專案，並執行範例專案的測試；用排程打包範本產生各種資料庫組合的專案，跑單元測試與 `check_project.py`。
 2. 確認 `SKILL.md` 的格式。
 3. 打包並發佈新的 Release。

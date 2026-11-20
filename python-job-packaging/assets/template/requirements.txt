@@ -1,0 +1,8 @@
+# Runtime dependencies only (what the exe needs). Keep this file ASCII-only:
+# pip reads it with the system code page (cp950 on zh-TW Windows).
+# {{#oracle}}
+oracledb>=2.0
+# {{/oracle}}
+# {{#sqlserver}}
+pyodbc>=5.0
+# {{/sqlserver}}

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.venv-build/
+logs/
+wheels/
+build/
+release/
+build-freeze.txt
+.env
