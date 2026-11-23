@@ -572,7 +572,7 @@ class Checker:
         def own(parts):
             return len(parts) == 1 or parts[0] == schema
 
-        for rel, lines in sources:
+        for rel, lines in sorted(sources, key=lambda s: s[0]):   # 依路徑排序：後面的 Migration 蓋過前面的
             # 去掉行尾的 -- 註解（保留換行，行號不變）；整行註解 database_sources 已清掉
             text = re.sub(r"--[^\n]*", "", "\n".join(lines))
             line_of = lambda pos: text.count("\n", 0, pos) + 1  # noqa: E731
