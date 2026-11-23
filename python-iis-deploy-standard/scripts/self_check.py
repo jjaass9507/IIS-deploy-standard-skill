@@ -482,8 +482,12 @@ class Checker:
                 if not other_hit:
                     d = self.DDL.search(line)
                     w = self.DML.search(line)
+                    c = self.COMMENT_ON.search(line)
+                    c_parts = c.group("name").replace('"', "").lower().split(".") if c else []
                     if d and d.group("s").lower() != schema and d.group("s").lower() not in self.SYSTEM_SCHEMAS:
                         other_hit = where
+                    elif c and len(c_parts) == (2 if c.group("kind").upper() == "TABLE" else 3) and c_parts[0] != schema:
+                        other_hit = where   # 共用表（例如 base 的員工表）的註解不歸本系統改
                     elif w and w.group("s").lower() != schema and w.group("s").lower() not in self.SYSTEM_SCHEMAS:
                         table = f'{w.group("s")}.{w.group("t")}'.lower()
                         if table not in writable and not table.endswith(".kh_ad_employees"):
@@ -495,6 +499,157 @@ class Checker:
         serial = self.grep(sources, r"\b(BIG|SMALL)?SERIAL\b")
         if serial:
             self.add(WARNING, "DB-07", serial, "新表改用 GENERATED ALWAYS AS IDENTITY")
+        missing, where = self.comment_coverage(sources, schema)
+        if missing:
+            shown = "、".join(missing[:8]) + (f" 等 {len(missing)} 項" if len(missing) > 8 else "")
+            self.add(WARNING, "DB-08", f"{where}；沒有中文註解：{shown}",
+                     "每張表、每個欄位都用 COMMENT ON TABLE／COMMENT ON COLUMN 寫中文說明（Alembic 用 comment=）；"
+                     "既有表新增一支 Migration 補上（見 references/code-patterns.md §11）")
+
+    # ---- DB-08：資料表與欄位註解 ------------------------------------------------
+    CREATE_TABLE = re.compile(r"\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<name>(?:\"?\w+\"?\.)?\"?\w+\"?)\s*\(", re.I)
+    ADD_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?P<name>(?:\"?\w+\"?\.)?\"?\w+\"?)\s+ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\"?(?P<col>\w+)\"?", re.I)
+    DROP_COLUMN = re.compile(r"\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?P<name>(?:\"?\w+\"?\.)?\"?\w+\"?)\s+DROP\s+(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?\"?(?P<col>\w+)\"?", re.I)
+    RENAME = re.compile(r"\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?P<name>(?:\"?\w+\"?\.)?\"?\w+\"?)\s+RENAME\s+"
+                        r"(?:(?:COLUMN\s+)?\"?(?P<old>\w+)\"?\s+)?TO\s+\"?(?P<new>\w+)\"?", re.I)
+    DROP_TABLE = re.compile(r"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?P<name>(?:\"?\w+\"?\.)?\"?\w+\"?)", re.I)
+    COMMENT_ON = re.compile(r"\bCOMMENT\s+ON\s+(?P<kind>TABLE|COLUMN)\s+(?P<name>[\w\".]+)\s+IS\s+(?P<null>NULL\b)?", re.I)
+    NOT_COLUMN = {"constraint", "primary", "unique", "foreign", "check", "exclude", "like"}
+    ALEMBIC_CALL = re.compile(r"\b(?:op\.)?(?P<fn>create_table|add_column)\(\s*[\"'](?P<name>\w+)[\"']")
+    COLUMN_CALL = re.compile(r"\b(?:sa\.)?Column\(\s*[\"'](?P<col>\w+)[\"']")
+
+    @staticmethod
+    def _balanced(text, start):
+        """text[start] 是左括號；回傳括號內的內容（略過字串裡的括號）。"""
+        depth, quote, i = 0, None, start
+        while i < len(text):
+            ch = text[i]
+            if quote:
+                if ch == quote:
+                    quote = None
+            elif ch in "'\"":
+                quote = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return text[start + 1:i]
+            i += 1
+        return text[start + 1:]
+
+    @staticmethod
+    def _split_top(body):
+        parts, depth, quote, current = [], 0, None, []
+        for ch in body:
+            if quote:
+                quote = None if ch == quote else quote
+            elif ch in "'\"":
+                quote = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                parts.append("".join(current))
+                current = []
+                continue
+            current.append(ch)
+        parts.append("".join(current))
+        return [p.strip() for p in parts if p.strip()]
+
+    def comment_coverage(self, sources, schema):
+        """本系統 Migration 建立的表與欄位，有沒有對應的 COMMENT ON（或 Alembic 的 comment=）。
+
+        整個專案一起看：舊 Migration 建表、新 Migration 補註解也算有。回傳 (缺少的項目, 第一個缺少處)。"""
+        def bare(name):
+            parts = name.replace('"', "").lower().split(".")
+            return parts
+
+        tables, order, where = {}, [], {}
+        commented_tables, commented_columns = set(), set()
+
+        def own(parts):
+            return len(parts) == 1 or parts[0] == schema
+
+        for rel, lines in sources:
+            # 去掉行尾的 -- 註解（保留換行，行號不變）；整行註解 database_sources 已清掉
+            text = re.sub(r"--[^\n]*", "", "\n".join(lines))
+            line_of = lambda pos: text.count("\n", 0, pos) + 1  # noqa: E731
+            for m in self.CREATE_TABLE.finditer(text):
+                parts = bare(m.group("name"))
+                if not own(parts):
+                    continue
+                body = self._balanced(text, m.end() - 1)
+                columns = [p.split()[0].strip('"').lower() for p in self._split_top(body)
+                           if p.split() and p.split()[0].strip('"').lower() not in self.NOT_COLUMN]
+                table = parts[-1]
+                if table not in tables:
+                    order.append(table)
+                    where[table] = f"{rel} 第 {line_of(m.start())} 行"
+                tables.setdefault(table, [])
+                tables[table] += [c for c in columns if c not in tables[table]]
+            for m in self.ADD_COLUMN.finditer(text):
+                parts, col = bare(m.group("name")), m.group("col").lower()
+                if own(parts) and col not in self.NOT_COLUMN and parts[-1] in tables and col not in tables[parts[-1]]:
+                    tables[parts[-1]].append(col)
+            for m in self.DROP_COLUMN.finditer(text):
+                parts, col = bare(m.group("name")), m.group("col").lower()
+                if parts[-1] in tables and col in tables[parts[-1]]:
+                    tables[parts[-1]].remove(col)
+            for m in self.RENAME.finditer(text):
+                table = bare(m.group("name"))[-1]
+                if table not in tables:
+                    continue
+                if m.group("old"):   # RENAME COLUMN a TO b
+                    old, new = m.group("old").lower(), m.group("new").lower()
+                    tables[table] = [new if c == old else c for c in tables[table]]
+                else:                # RENAME TO new_table
+                    new = m.group("new").lower()
+                    tables[new] = tables.pop(table)
+                    order[order.index(table)] = new
+                    where[new] = where.pop(table)
+            for m in self.DROP_TABLE.finditer(text):
+                tables.pop(bare(m.group("name"))[-1], None)
+            for m in self.COMMENT_ON.finditer(text):
+                parts = bare(m.group("name"))
+                target = commented_tables if m.group("kind").upper() == "TABLE" else commented_columns
+                key = parts[-1] if target is commented_tables else ".".join(parts[-2:])
+                (target.discard if m.group("null") else target.add)(key)
+            # Alembic：op.create_table("t", sa.Column("c", ..., comment="..."), comment="...")
+            for m in self.ALEMBIC_CALL.finditer(text):
+                body = self._balanced(text, text.index("(", m.start()))
+                table = m.group("name").lower()
+                if m.group("fn") == "create_table":
+                    if table not in tables:
+                        order.append(table)
+                        where[table] = f"{rel} 第 {line_of(m.start())} 行"
+                    tables.setdefault(table, [])
+                stripped = body
+                for c in self.COLUMN_CALL.finditer(body):
+                    col_body = self._balanced(body, body.index("(", c.start()))
+                    col = c.group("col").lower()
+                    tables.setdefault(table, [])
+                    if col not in tables[table]:
+                        tables[table].append(col)
+                    if re.search(r"\bcomment\s*=", col_body):
+                        commented_columns.add(f"{table}.{col}")
+                    stripped = stripped.replace(col_body, "")
+                if m.group("fn") == "create_table" and re.search(r"\bcomment\s*=", stripped):
+                    commented_tables.add(table)
+            for m in re.finditer(r"\b(?:op\.)?create_table_comment\(\s*[\"'](\w+)[\"']", text):
+                commented_tables.add(m.group(1).lower())
+
+        missing, first = [], None
+        for table in order:
+            if table not in tables:
+                continue
+            gaps = ([f"{table}（表）"] if table not in commented_tables else []) + \
+                   [f"{table}.{c}" for c in tables[table] if f"{table}.{c}" not in commented_columns]
+            if gaps and first is None:
+                first = where[table]
+            missing += gaps
+        return missing, first
 
     REVIEWABLE_ERRORS = {"DB-03", "DB-04", "DB-05", "DB-06"}   # 推測性規則：確認無誤後可用 reviewed 排除
 

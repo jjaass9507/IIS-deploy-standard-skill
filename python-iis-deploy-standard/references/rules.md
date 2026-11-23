@@ -98,12 +98,13 @@ PATH-03 最常見的原因：開發用的 SQLite 預設放在專案資料夾、F
 | DB-05 | `GRANT` 只授予本系統 `_rw`／`_ro`，不含 `ALL`、`TRUNCATE`、`CREATE`、`TRIGGER`、`REFERENCES`，不授予角色成員資格 | 必過・推測 |
 | DB-06 | 不建立或修改其他 Schema 的物件；不寫入未列在 `sharedWrites` 的共用表 | 必過・推測 |
 | DB-07 | 新表不用 `SERIAL` | 警告・推測 |
+| DB-08 | Migration 建立的本系統資料表與每個欄位都有中文註解（`COMMENT ON TABLE`／`COMMENT ON COLUMN`，Alembic 用 `comment=`）；整個專案一起看，後面的 Migration 補上也算；`IS NULL` 視為移除。對其他 Schema 的表下 `COMMENT ON` 屬於 DB-06 | 警告・推測 |
 
 部署時（伺服器上，不符合就停止部署、線上版本不受影響）：服務帳號不可是超級使用者或 owner、不可有 `CREATEDB`／`CREATEROLE`／`BYPASSRLS`、不屬於 `pg_read_all_data` 等全域角色、不可在資料庫或 Schema 建立物件、對表沒有 `TRUNCATE`／`TRIGGER`／`REFERENCES`；migration 帳號可 `SET ROLE` 成 owner 但不繼承；Migration 之後所有物件的 owner 是 owner，且服務帳號讀得到每一張表。
 
 ## 誤判時
 
-靠掃描程式碼推測的規則（上表標「推測」，以及 DB-03～DB-07、PATH-01、PATH-02、PKG-07、SSO-01、SSO-02、AUTH-10）可能誤判。確認程式沒有問題後，在 `deployment.json` 加：
+靠掃描程式碼推測的規則（上表標「推測」，以及 DB-03～DB-08、PATH-01、PATH-02、PKG-07、SSO-01、SSO-02、AUTH-10）可能誤判。確認程式沒有問題後，在 `deployment.json` 加：
 
 ```json
 "reviewed": [ { "rule": "ARCH-05", "file": "myapp/report.py", "note": "執行緒只用來平行查詢，請求結束前就會 join", "by": "K12345" } ]

@@ -390,3 +390,46 @@ with psycopg.connect(url, autocommit=False) as conn:
 - 可重複執行（已套用的不重做），成功結束碼 0、失敗非 0。
 - 支援 `--help`（argparse 預設就有），檢查工具會用它確認指令能啟動；否則在 `migrations.checkArgs` 指定。
 - `MIGRATION_DATABASE_URL` 不寫進 `.env`。
+
+## 11. 資料表與欄位註解（DB-08）
+
+每張本系統的表與每個欄位都要有中文註解，寫進資料庫，不是只寫在程式或文件裡。
+
+**純 SQL Migration**：建表後緊接著寫，或集中在一支註解 Migration。
+
+```sql
+CREATE TABLE demo_person (
+    account      VARCHAR(64)  PRIMARY KEY,
+    display_name VARCHAR(120) NOT NULL DEFAULT '',
+    roles        JSONB        NOT NULL DEFAULT '[]',
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE  demo_person              IS '平台人員與權限：以工號為主鍵；角色由系統管理員指派，不取自 AD 群組';
+COMMENT ON COLUMN demo_person.account      IS '工號（主鍵）';
+COMMENT ON COLUMN demo_person.display_name IS '顯示姓名（儲存時從員工資料表帶入的快照）';
+COMMENT ON COLUMN demo_person.roles        IS '角色清單（JSON）：viewer 檢視者／operator 操作人員／admin 系統管理員';
+COMMENT ON COLUMN demo_person.updated_at   IS '最後修改時間（UTC）';
+```
+
+**Alembic**：`comment=` 會產生 `COMMENT ON`。
+
+```python
+op.create_table(
+    "demo_person",
+    sa.Column("account", sa.String(64), primary_key=True, comment="工號（主鍵）"),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, comment="最後修改時間（UTC）"),
+    comment="平台人員與權限：以工號為主鍵",
+)
+op.add_column("demo_person", sa.Column("email", sa.String(200), comment="Email（通知收件用）"))
+```
+
+SQLAlchemy 模型也加上 `comment=`（`Column(..., comment=...)`、`__table_args__ = {"comment": ...}`），autogenerate 才會帶出來。
+
+寫法：
+
+- 寫**意義**，不是重複欄位名：單位（kW、秒）、時區（UTC／台北）、代碼值各代表什麼、JSON 裡放什麼、`''`／`NULL` 代表什麼、關聯到哪張表的哪個欄位（`所屬事件（demo_event.id）`）、是否只新增不修改。
+- 重複的說明（流水號、建立時間、修改者、版本號）寫成同一句，整個系統一致。表很多時，可以把註解集中在一個 Python 檔，由它產生註解 Migration 與資料字典，並用測試確認每個欄位都有註解（GMS 監控平台的 `schema_comments.py` 就是這樣做）。
+- 既有表沒有註解：新增一支 Migration 補上，不改已經套用過的 Migration。補不完的可以先在 `reviewed` 登記 `DB-08`，寫明預計補齊的時間。
+- 改欄位意義時同一支 Migration 一起改註解；`DROP COLUMN` 不必另外處理。
+- 只寫本系統 Schema 的表。共用表（例如 `base.kh_ad_employees`）的註解由該表的負責單位維護，平台下 `COMMENT ON` 會被 DB-06 擋下。
+- SQLite（開發環境）不支援 `COMMENT ON`：SQL 檔分開 PostgreSQL 與 SQLite 時，PostgreSQL 版要有；Alembic 的 `comment=` 在 SQLite 會被忽略，不影響執行。

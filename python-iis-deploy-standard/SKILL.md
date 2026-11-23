@@ -143,6 +143,7 @@ D:\WebServices\<系統名稱>\
 - 若要 `GRANT`，只授予本系統的 `_rw`／`_ro` 群組，不給 `ALL`、`TRUNCATE`、`CREATE`，不給登入帳號或 `PUBLIC`。通常不需要：DBA 設好預設權限後，owner 建立的新表會自動授權。
 - 只建立或修改本系統 Schema 的物件。共用資料（例如 `base` Schema）只讀；要讀哪些表列在 `database.sharedReads`；確實要寫入時列在 `sharedWrites` 並由使用者填上 DBA 的核准紀錄（不要替使用者編造）。
 - 新表的流水號用 `GENERATED ALWAYS AS IDENTITY`，不用 `SERIAL`。
+- 每張表、每個欄位都要有**中文註解**，在 Migration 裡用 `COMMENT ON TABLE`／`COMMENT ON COLUMN` 寫進資料庫（DBA 在 pgAdmin、DBeaver、`\d+` 直接看得到）。說明要讓人看得懂：意義、單位、時區、代碼值的含義、JSON 的內容、與哪張表關聯。改註解或補註解都新增一支 Migration，不改已套用的。只註解本系統 Schema 的表，共用表（例如 `base`）的註解不動。寫法見 `references/code-patterns.md` §11（`DB-08`）。
 - 程式碼一律寫完整名稱（`<schema>.<table>`）或依賴服務帳號的 `search_path`；不要改整個資料庫的 `search_path`。
 
 ### 8. 完成前自我檢查

@@ -11,6 +11,7 @@
 - 背景工作改成由 WinSW 管理的常駐服務
 - 資料庫 Migration 的相容性宣告
 - PostgreSQL 的 `database` 宣告（資料庫、Schema、owner／rw／ro／migrator／服務帳號）；Migration 先 `SET ROLE` 成 owner、程式不建立帳號或改授權（開發時用 SQLite 也要宣告，正式環境一律 PostgreSQL）
+- 每張資料表與每個欄位都要有中文註解（Migration 裡的 `COMMENT ON`，規則 `DB-08`）
 
 完成後 Agent 會用附的檢查腳本自我檢查，再請你在 Windows 上用 IIS 部署助手做最終檢查。
 
@@ -110,7 +111,7 @@ python python-iis-deploy-standard/scripts/self_check.py <專案資料夾>
 - **自我檢查不能取代部署助手**：它不會實際安裝套件、啟動網站、送出請求。最終以 IIS 部署助手在 Windows 上的完整檢查為準。
 - **`requirements.lock` 要在 Windows、與部署機相同的 Python 版本上產生**。在 Linux 或 macOS 產生的版本會漏掉 Windows 才需要的套件；Agent 不在 Windows 上時會提醒你重新產生。
 - **例外與人工確認由人決定**：skill 要求 Agent 不可以替你填寫負責人、期限或確認人。
-- skill 已反映部門的決定：有使用者登入的網站一律要有 Windows SSO；AD 連線的憑證驗證為建議、不強制；升級時先更新資料庫再切換版本；固定的環境變數名稱。這些與規範 v1.2 原文不完全相同，規範原文待部門更新。
+- skill 已反映部門的決定：有使用者登入的網站一律要有 Windows SSO；AD 連線的憑證驗證為建議、不強制；升級時先更新資料庫再切換版本；固定的環境變數名稱。資料表與欄位要有中文註解（`DB-08`，目前為警告）。這些與規範 v1.2、PostgreSQL 標準 v1.0 原文不完全相同，規範原文待部門更新。
 
 ---
 
