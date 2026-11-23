@@ -254,10 +254,51 @@ python platform-people-access/scripts/check_employee_table.py --settings setting
 
 ---
 
+# anti-ai-slop-ui（去 AI Slop 前端設計與 Style Seed skill）
+
+這個 repo 另外附一個獨立的 skill：**消除網頁介面 AI 預設感的前端設計規範與 Platform Hub Style Seed**，統整自 GitHub 六大去 AI Slop 開源設計 Skills，並內建 `platform-hub` 定案之「Editorial Chapter Spread & Multi-Layer Ceramic Glaze Craft System」，適用於企業入口網、內部系統、資料目錄與管理後台：
+
+- 同時避開兩代 AI Slop 預設陷阱：第一代（藍紫漸層 `#6366f1`／Tailwind 藍／`999px` 膠囊／左欄 Sidebar＋4 格 KPI 卡／對稱三欄卡片海）與第二代（暖米色 `#faf8f5`＋襯線標題＋鼠尾草綠）
+- 可直接複用的 Light（礦物展覽紙 `#f1f2ed`）／Dark（深玄武岩 `#0b0d10`）CSS Design Tokens、群青鈷藍＋朱砂紅強調色與七組陶瓷釉色
+- 非對稱雙欄章節跨頁、三段式深色頁首＋黏性水平章節帶、觸覺啟動鍵帽（`↗`）、Tufte 單行狀態帳本與「靜態安靜、異常高聲」例外回報
+- 16 枚原創 `48×48` 四層幾何／等距雙色 SVG 徽章（`assets/bespoke-emblems.js`）
+- 零廢話文案與非管理員零管理雜訊紀律，以及兩支只用 Python 標準函式庫的靜態掃描腳本（`devibe_scan.py`、`slop_checker.py`）
+
+```text
+anti-ai-slop-ui/
+├─ SKILL.md                             核心規範、對照表、CSS Token 與 10 點自檢（Agent 先讀這份）
+├─ references/
+│  └─ platform-hub-styleseed.md         完整 Style Seed、版面建築藍圖與四層 SVG 規格
+├─ scripts/
+│  ├─ devibe_scan.py                    12 大 AI 視覺破綻目錄掃描器（只用 Python 標準函式庫）
+│  └─ slop_checker.py                   HTML/CSS Anti-Slop 靜態檢查器（只用 Python 標準函式庫）
+└─ assets/
+   ├─ bespoke-emblems.js                16 枚原創 48×48 四層陶瓷釉色 SVG 徽章（可直接複製引用）
+   └─ tests/
+      └─ test_scanners.py               兩支掃描腳本的自測套件
+```
+
+安裝方式與上面相同：下載 Release 裡的 `anti-ai-slop-ui.skill`（或 `.zip`），或把 `anti-ai-slop-ui` 資料夾放到 `.claude/skills/`。可與 `python-iis-deploy-standard`、`platform-people-access` 一起使用——後端部署與人員權限照前兩份，前端視覺與去 Slop 稽核照這一份。
+
+使用範例：
+
+> 這個內部系統首頁太像 AI 生成的紫藍卡片模板，請依 anti-ai-slop-ui skill 重構視覺並跑靜態掃描到 0 findings。
+
+> 新建設備保養管理後台，請直接套用 anti-ai-slop-ui skill 裡的 Platform Hub Style Seed 與四層 SVG 徽章。
+
+不透過 Agent 也可以直接執行靜態掃描（需要 Python 3.8 以上）：
+
+```bash
+python3 anti-ai-slop-ui/scripts/devibe_scan.py <前端原始碼目錄>
+python3 anti-ai-slop-ui/scripts/slop_checker.py --verbose <HTML 或 CSS 檔案>
+```
+
+---
+
 ## 更新
 
 規範或部署助手的規則改變時，同步更新這裡與 [IIS-deploy-assistant](https://github.com/jjaass9507/IIS-deploy-assistant) 裡的同一份 skill（`skills/python-iis-deploy-standard`）。推送到 `main` 後會自動：
 
-1. 用 `self_check.py` 檢查範例專案，並執行範例專案的測試；用排程打包範本產生各種資料庫組合的專案，跑單元測試與 `check_project.py`。
+1. 用 `self_check.py` 檢查範例專案，並執行範例專案的測試；執行各 skill 內附的測試（含排程打包各種資料庫組合範本、人員權限與 `anti-ai-slop-ui` 掃描器測試）。
 2. 確認 `SKILL.md` 的格式。
 3. 打包並發佈新的 Release。

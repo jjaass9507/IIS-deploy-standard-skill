@@ -51,11 +51,17 @@ jobs:
             if grep -rIl "pms_ingest\|PmsIngest" "$out"; then echo "reference name leaked into template"; exit 1; fi
           done
 
+      - name: Anti-AI-Slop UI skill tests
+        working-directory: anti-ai-slop-ui
+        run: |
+          python -m py_compile scripts/devibe_scan.py scripts/slop_checker.py
+          python -m unittest discover -s assets/tests -v
+
       - name: Validate SKILL.md front matter
         run: |
           python - <<'PY'
           import re, sys
-          for skill in ("python-iis-deploy-standard", "internal-agent-integration", "python-job-packaging", "platform-people-access"):
+          for skill in ("python-iis-deploy-standard", "internal-agent-integration", "python-job-packaging", "platform-people-access", "anti-ai-slop-ui"):
               text = open(f"{skill}/SKILL.md", encoding="utf-8").read()
               m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
               if not m: sys.exit(f"{skill}/SKILL.md has no YAML front matter")
@@ -81,6 +87,9 @@ jobs:
           zip -qr dist/platform-people-access.skill platform-people-access -x '*/__pycache__/*' '*/.pytest_cache/*'
           cp dist/platform-people-access.skill dist/platform-people-access.zip
           (cd dist && sha256sum platform-people-access.skill > platform-people-access.skill.sha256)
+          zip -qr dist/anti-ai-slop-ui.skill anti-ai-slop-ui -x '*/__pycache__/*' '*/.pytest_cache/*'
+          cp dist/anti-ai-slop-ui.skill dist/anti-ai-slop-ui.zip
+          (cd dist && sha256sum anti-ai-slop-ui.skill > anti-ai-slop-ui.skill.sha256)
 
       - name: Publish release
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -92,6 +101,7 @@ jobs:
             dist/internal-agent-integration.skill dist/internal-agent-integration.zip dist/internal-agent-integration.skill.sha256 \
             dist/python-job-packaging.skill dist/python-job-packaging.zip dist/python-job-packaging.skill.sha256 \
             dist/platform-people-access.skill dist/platform-people-access.zip dist/platform-people-access.skill.sha256 \
+            dist/anti-ai-slop-ui.skill dist/anti-ai-slop-ui.zip dist/anti-ai-slop-ui.skill.sha256 \
             --repo "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "python-iis-deploy-standard（規範 v1.2）build ${{ github.run_number }}" \
-            --notes "部署規範 skill（python-iis-deploy-standard）、內部 Agent 串接 skill（internal-agent-integration）、排程打包 skill（python-job-packaging）與人員權限 skill（platform-people-access）。下載 .skill（或內容相同的 .zip），安裝方式見 README。"
+            --notes "部署規範 skill（python-iis-deploy-standard）、內部 Agent 串接 skill（internal-agent-integration）、排程打包 skill（python-job-packaging）、人員權限 skill（platform-people-access）與去 AI Slop 前端設計 skill（anti-ai-slop-ui）。下載 .skill（或內容相同的 .zip），安裝方式見 README。"
