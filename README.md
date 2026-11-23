@@ -212,6 +212,47 @@ python python-job-packaging/scripts/check_project.py ./meter_sync            # �
 
 ---
 
+# platform-people-access（人員與權限 skill）
+
+這個 repo 另外附一個獨立的 skill：**內部平台的人員與權限管理標準作法**，整理自 GMS 監控平台（gms-monitor-agent）實際上線的程式，選人元件與 power-bill-agent 同一規格。平台的登入與部署照部署規範 skill；這份管的是**登入之後「這個人是誰、能做什麼」**：
+
+- 公司員工資料表 `base.kh_ad_employees` **只讀**：`sharedReads` 宣告、DBA 授權給 `<prefix>_rw` 群組、欄位名稱以設定對應（不寫死）
+- 平台自己的名單表 `<prefix>_person`（工號 → 角色、可檢視／可操作範圍、主管），每次異動要理由並留不可變版本
+- 權限每個請求在後端重算，拒絕一律 403；角色不從 AD 群組來
+- 選人一律用員工選擇器（搜尋工號／姓名／部門，不讓人手打），儲存時姓名與 Email 以員工資料表為準；離職者不自動拔權限，只標示「查無此工號」
+- 依直屬主管欄位預填兩層主管
+
+```text
+platform-people-access/
+├─ SKILL.md                      主要說明（Agent 先讀這份）
+├─ references/
+│  ├─ data-model.md              員工表設定與授權、查詢 SQL、平台名單表 DDL、稽核
+│  ├─ backend.md                 每請求權限計算、403 裝飾器、管理 API、儲存規則、通知收件者、FastAPI 寫法
+│  └─ person-picker.md           選人元件規格與管理頁版面
+├─ scripts/
+│  ├─ employee_directory.py      員工表唯讀查詢（直接複製進專案，只依賴 SQLAlchemy）
+│  └─ check_employee_table.py    部署後核對讀取權限與欄位對應，讀不到時印出給 DBA 的 GRANT
+└─ assets/
+   ├─ frontend/                  PersonPicker.jsx（React）、person-picker.js（原生 JS）、person-picker.css
+   └─ tests/                     test_employee_directory.py（SQLite，不需公司資料庫）
+```
+
+安裝方式與上面相同：下載 Release 裡的 `platform-people-access.skill`（或 `.zip`），或把 `platform-people-access` 資料夾放到 `.claude/skills/`。
+
+使用範例：
+
+> 這個平台要加「人員與權限」頁：角色分檢視者、操作人員、系統管理員，依廠區限制可操作範圍，人員從員工資料表選。請依 platform-people-access skill 實作。
+
+> 簽核設定要能指定簽核人名單，請照人員權限 skill 用選人元件從 kh_ad_employees 選人。
+
+部署後在伺服器上用平台的服務帳號核對員工表：
+
+```bash
+python platform-people-access/scripts/check_employee_table.py --settings settings.json --search 王
+```
+
+---
+
 ## 更新
 
 規範或部署助手的規則改變時，同步更新這裡與 [IIS-deploy-assistant](https://github.com/jjaass9507/IIS-deploy-assistant) 裡的同一份 skill（`skills/python-iis-deploy-standard`）。推送到 `main` 後會自動：

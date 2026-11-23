@@ -101,7 +101,7 @@ D:\WebServices\<系統名稱>\
 - **AD 登入成功不等於開通**：平台自己記錄哪些帳號已開通、是什麼角色，每個業務 API 在後端檢查。
 - Session Cookie：`HttpOnly`、`SameSite`，`Secure` 可由設定開啟。
 - 不要把密碼寫進 log。
-- 員工資料表 `base.kh_ad_employees` 只讀不寫。
+- 員工資料表 `base.kh_ad_employees` 只讀不寫。要查人員清單、選人、做角色權限或名單設定時，照 `platform-people-access` skill（欄位對應、查詢寫法、名單表、選人元件、DBA 授權）。
 - AD 連線：部門預設**不強制**驗證憑證（可用 `ldap://`）；環境允許時建議用 `ldaps://` 並驗證憑證。把 CA 檔路徑做成設定，之後要開啟才不用改程式。
 
 ### 6. 背景工作
