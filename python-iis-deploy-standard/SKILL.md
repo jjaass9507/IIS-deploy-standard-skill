@@ -144,6 +144,7 @@ D:\WebServices\<系統名稱>\
 - 只建立或修改本系統 Schema 的物件。共用資料（例如 `base` Schema）只讀；要讀哪些表列在 `database.sharedReads`；確實要寫入時列在 `sharedWrites` 並由使用者填上 DBA 的核准紀錄（不要替使用者編造）。
 - 新表的流水號用 `GENERATED ALWAYS AS IDENTITY`，不用 `SERIAL`。
 - 每張表、每個欄位都要有**中文註解**，在 Migration 裡用 `COMMENT ON TABLE`／`COMMENT ON COLUMN` 寫進資料庫（DBA 在 pgAdmin、DBeaver、`\d+` 直接看得到）。說明要讓人看得懂：意義、單位、時區、代碼值的含義、JSON 的內容、與哪張表關聯。改註解或補註解都新增一支 Migration，不改已套用的。只註解本系統 Schema 的表，共用表（例如 `base`）的註解不動。寫法見 `references/code-patterns.md` §11（`DB-08`）。
+- 新增的資料庫權限角色（上表的角色、報表帳號，以及系統另外需要的群組或帳號）也都要有**中文備註**，用 `COMMENT ON ROLE` 寫進資料庫：所屬系統、用途、可否登入、權限範圍、申請人或負責單位。角色由 DBA 建立，所以備註寫在交給 DBA 的建置 SQL 裡，緊接在 `CREATE ROLE` 之後；程式與 Migration 裡不寫 `COMMENT ON ROLE`（屬於 DB-04）。請 DBA 新增角色時，連同備註一起列給使用者。寫法見 `references/code-patterns.md` §12。
 - 程式碼一律寫完整名稱（`<schema>.<table>`）或依賴服務帳號的 `search_path`；不要改整個資料庫的 `search_path`。
 
 ### 8. 完成前自我檢查

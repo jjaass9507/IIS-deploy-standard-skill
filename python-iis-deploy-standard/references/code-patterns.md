@@ -433,3 +433,28 @@ SQLAlchemy 模型也加上 `comment=`（`Column(..., comment=...)`、`__table_ar
 - 改欄位意義時同一支 Migration 一起改註解；`DROP COLUMN` 不必另外處理。
 - 只寫本系統 Schema 的表。共用表（例如 `base.kh_ad_employees`）的註解由該表的負責單位維護，平台下 `COMMENT ON` 會被 DB-06 擋下。
 - SQLite（開發環境）不支援 `COMMENT ON`：SQL 檔分開 PostgreSQL 與 SQLite 時，PostgreSQL 版要有；Alembic 的 `comment=` 在 SQLite 會被忽略，不影響執行。
+
+## 12. 資料庫角色備註
+
+新增的權限角色（`_owner`、`_rw`、`_ro`、`_migrator`、`_svc`、`_report`，或系統另外需要的群組／帳號）都要有中文備註，讓 DBA 在 `\du+`、pgAdmin 看得出這個角色屬於誰、做什麼用。
+
+角色由 DBA 建立，備註寫在**交給 DBA 的建置 SQL**，緊接在 `CREATE ROLE` 之後，不寫在程式或 Migration（`COMMENT ON ROLE` 需要角色管理權限，Migration 帳號沒有，自我檢查會列為 DB-04）：
+
+```sql
+CREATE ROLE powerbill_owner    NOLOGIN;
+COMMENT ON ROLE powerbill_owner    IS '電費系統（powerbill）：擁有 Schema 與所有表，不可登入；只供 migrator SET ROLE 使用';
+CREATE ROLE powerbill_rw       NOLOGIN;
+COMMENT ON ROLE powerbill_rw       IS '電費系統（powerbill）：讀寫群組，對本系統 Schema 的表 SELECT/INSERT/UPDATE/DELETE';
+CREATE ROLE powerbill_ro       NOLOGIN;
+COMMENT ON ROLE powerbill_ro       IS '電費系統（powerbill）：唯讀群組，對本系統 Schema 的表 SELECT';
+CREATE ROLE powerbill_migrator LOGIN NOINHERIT;
+COMMENT ON ROLE powerbill_migrator IS '電費系統（powerbill）：部署時執行 Migration 的登入帳號，可 SET ROLE powerbill_owner，不繼承權限';
+CREATE ROLE powerbill_svc      LOGIN;
+COMMENT ON ROLE powerbill_svc      IS '電費系統（powerbill）：網站與背景服務的連線帳號，屬於 powerbill_rw；.env 的 DATABASE_URL 使用';
+```
+
+寫法：
+
+- 每則備註都包含：所屬系統（中文名稱與 Schema）、用途、可否登入、權限範圍；有需要時加上申請人或負責單位、申請單號。
+- 系統額外需要的角色（例如給其他系統讀取的唯讀帳號）請使用者向 DBA 申請時，把 `CREATE ROLE` 與 `COMMENT ON ROLE` 一起列出；不要替使用者編造申請人或單號。
+- 角色用途或權限改變時，請 DBA 一併更新備註。

@@ -369,7 +369,7 @@ class Checker:
     # ------------------------------------------------------------ PostgreSQL（docs/09、PostgreSQL 標準 v1.0）
     DB_DRIVERS = ("psycopg", "psycopg2", "psycopg2-binary", "psycopg-binary", "asyncpg", "pg8000")
     IDENT = re.compile(r"[a-z_][a-z0-9_]{0,62}")
-    DBA_ONLY = re.compile(r"\b(CREATE|ALTER|DROP)\s+(ROLE|USER|GROUP)\b|\bREASSIGN\s+OWNED\b|\bDROP\s+OWNED\b|\b(CREATE|ALTER|DROP)\s+DATABASE\b"
+    DBA_ONLY = re.compile(r"\b(CREATE|ALTER|DROP)\s+(ROLE|USER|GROUP)\b|\bCOMMENT\s+ON\s+ROLE\b|\bREASSIGN\s+OWNED\b|\bDROP\s+OWNED\b|\b(CREATE|ALTER|DROP)\s+DATABASE\b"
                           r"|\bALTER\s+SYSTEM\b|\bREVOKE\b.*\bON\s+DATABASE\b|\bGRANT\b.*\bON\s+DATABASE\b|\bOWNER\s+TO\b|\bCREATE\s+SCHEMA\b"
                           r"|\bDROP\s+SCHEMA\b|\bCREATE\s+EXTENSION\b|\bpg_terminate_backend\b", re.I)
     GRANT = re.compile(r"\bGRANT\s+(?P<privs>.+?)\s+ON\s+(?P<obj>.+?)\s+TO\s+(?P<to>[^;\"')]+)", re.I)
@@ -463,7 +463,7 @@ class Checker:
                      f"Migration 連線後、建表前執行 SET ROLE {roles['owner']}（見 references/code-patterns.md §10）")
         hit = self.grep(sources, self.DBA_ONLY.pattern, re.I)
         if hit:
-            self.add(ERROR, "DB-04", hit, "建立帳號、密碼、Schema、Owner 與資料庫層級的變更由 DBA 執行；從程式移除，改請使用者交給 DBA")
+            self.add(ERROR, "DB-04", hit, "建立帳號（含角色備註 COMMENT ON ROLE）、密碼、Schema、Owner 與資料庫層級的變更由 DBA 執行；從程式移除，改請使用者交給 DBA")
         allowed = {roles["rw"].lower(), roles["ro"].lower()}
         writable = {t.lower() for t in db.get("sharedWrites") or []}
         grant_hit = other_hit = None

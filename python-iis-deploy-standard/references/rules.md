@@ -94,7 +94,7 @@ PATH-03 最常見的原因：開發用的 SQLite 預設放在專案資料夾、F
 | DB-01 | 用 PostgreSQL 或開發用 SQLite 時宣告 `database`（正式環境一律 PostgreSQL）；Schema、角色名稱正確且五個角色互不相同；`sharedWrites` 有核准紀錄 | 宣告／必過 |
 | DB-02 | `.env.example` 的 `DATABASE_URL` 不是 `postgres`、owner 或 migrator | 必過 |
 | DB-03 | 有 Migration 時，程式碼中有 `SET ROLE`（建表前切成 owner） | 必過・推測 |
-| DB-04 | 程式與 Migration 沒有 `CREATE/ALTER/DROP ROLE`、`CREATE SCHEMA`、`OWNER TO`、`... ON DATABASE`、`REASSIGN OWNED`、`DROP OWNED`、`ALTER SYSTEM` | 必過・推測 |
+| DB-04 | 程式與 Migration 沒有 `CREATE/ALTER/DROP ROLE`、`COMMENT ON ROLE`、`CREATE SCHEMA`、`OWNER TO`、`... ON DATABASE`、`REASSIGN OWNED`、`DROP OWNED`、`ALTER SYSTEM`（新增角色與其中文備註寫在交給 DBA 的建置 SQL，見 `code-patterns.md` §12） | 必過・推測 |
 | DB-05 | `GRANT` 只授予本系統 `_rw`／`_ro`，不含 `ALL`、`TRUNCATE`、`CREATE`、`TRIGGER`、`REFERENCES`，不授予角色成員資格 | 必過・推測 |
 | DB-06 | 不建立或修改其他 Schema 的物件；不寫入未列在 `sharedWrites` 的共用表 | 必過・推測 |
 | DB-07 | 新表不用 `SERIAL` | 警告・推測 |

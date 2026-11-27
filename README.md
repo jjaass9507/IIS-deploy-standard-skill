@@ -12,6 +12,7 @@
 - 資料庫 Migration 的相容性宣告
 - PostgreSQL 的 `database` 宣告（資料庫、Schema、owner／rw／ro／migrator／服務帳號）；Migration 先 `SET ROLE` 成 owner、程式不建立帳號或改授權（開發時用 SQLite 也要宣告，正式環境一律 PostgreSQL）
 - 每張資料表與每個欄位都要有中文註解（Migration 裡的 `COMMENT ON`，規則 `DB-08`）
+- 新增的資料庫權限角色也要有中文備註（`COMMENT ON ROLE`，寫在交給 DBA 的建置 SQL，不寫在 Migration）
 
 完成後 Agent 會用附的檢查腳本自我檢查，再請你在 Windows 上用 IIS 部署助手做最終檢查。
 
